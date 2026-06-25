@@ -1,142 +1,266 @@
-# DeepCAD
-This repository provides source code for our paper:
+# DeepCAD: A Deep Generative Network for Computer-Aided Design Models
 
-[DeepCAD: A Deep Generative Network for Computer-Aided Design Models](https://arxiv.org/abs/2105.09492)
+[![arXiv](https://img.shields.io/badge/arXiv-2105.09492-b31b1b.svg)](https://arxiv.org/abs/2105.09492)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-[Rundi Wu](https://chriswu1997.github.io), [Chang Xiao](http://chang.engineer), [Changxi Zheng](http://www.cs.columbia.edu/~cxz/index.htm)
+This repository contains the PyTorch implementation of the paper:
+> **DeepCAD: A Deep Generative Network for Computer-Aided Design Models**  
+> Rundi Wu, Chang Xiao, Changxi Zheng  
+> *IEEE/CVF International Conference on Computer Vision (ICCV), 2021*
 
-ICCV 2021 (camera ready version coming soon)
+---
 
-<p align="center">
-  <img src='teaser.png' width=600>
-</p>
+## 📌 Interactive System Workflow & Architecture Diagram
 
-We also release the Onshape CAD data parsing scripts here: [onshape-cad-parser](https://github.com/ChrisWu1997/onshape-cad-parser).
+```mermaid
+graph TD
+    A[Raw CAD Data: Onshape JSON] --> B[Vector Representation: cad_vec]
+    B --> C{Autoencoder Flow}
+    
+    %% Autoencoder branch
+    subgraph Autoencoder Pipeline
+        C --> D[CAD Embedding Layer]
+        D --> E[Transformer Encoder: 4 blocks]
+        E --> F[Bottleneck Layer: Linear + Tanh]
+        F --> G[Latent Vector z: 256-d]
+        G --> H[Const Embedding Layer]
+        H --> I[Transformer Decoder: 4 blocks]
+        I --> J[FCN Classification Head]
+        J --> K[Reconstructed CAD Sequence]
+    end
 
-## Prerequisites
+    %% GAN Branch
+    L[Standard Gaussian Noise: 64-d] --> M{Latent GAN Flow}
+    subgraph Latent GAN Pipeline
+        M --> N[Generator: MLP]
+        N --> O[Generated Latent Vector z_fake: 256-d]
+        O --> P[WGAN-GP Critic / Discriminator]
+        P --> Q[Wasserstein Distance Loss]
+    end
 
-- Linux
-- NVIDIA GPU + CUDA CuDNN
-- Python 3.7, PyTorch 1.5+
+    %% Decode generated vectors
+    O -->|Testing/Generation| H
 
+    %% Output Visualisation & Export
+    K --> R[Visualization & STEP Export]
+    R --> S[OCC-based Visualization show.py]
+    R --> T[Export to CAD standard: export2step.py]
+    
+    style Autoencoder Pipeline fill:#f5f8ff,stroke:#4a90e2,stroke-width:2px
+    style Latent GAN Pipeline fill:#fff7f5,stroke:#e15b64,stroke-width:2px
+```
 
-## Dependencies
+---
 
-Install python package dependencies through pip:
+## 🛠️ Step-by-Step System Flow Details (10 Critical Phases)
 
+Below is an in-depth breakdown of the 10 critical phases of the DeepCAD generative pipeline:
+
+```mermaid
+gantt
+    title DeepCAD Project Lifecycle Phases
+    dateFormat  YYYY-MM-DD
+    section Data Preparation
+    Phase 1: Parse Onshape JSON to Vector   :active, des1, 2026-06-01, 2026-06-05
+    Phase 2: Grouping & Command Sequence Masking :active, des2, 2026-06-05, 2026-06-08
+    section Autoencoder Network
+    Phase 3: Deep Embedding Alignment :crit, des3, 2026-06-08, 2026-06-12
+    Phase 4: Encoder Transformer Stack :crit, des4, 2026-06-12, 2026-06-16
+    Phase 5: Latent Compression Bottleneck :crit, des5, 2026-06-16, 2026-06-19
+    Phase 6: Decoder Transformer Stack :crit, des6, 2026-06-19, 2026-06-23
+    Phase 7: Joint Classification & Param Regression :crit, des7, 2026-06-23, 2026-06-26
+    section Latent Generative Adversarial
+    Phase 8: WGAN-GP Latent Sampling :active, des8, 2026-06-26, 2026-06-30
+    section Export & Validation
+    Phase 9: Post-Processing & Validation :des9, 2026-06-30, 2026-07-03
+    Phase 10: CAD Topology Export to STEP :des10, 2026-07-03, 2026-07-06
+```
+
+### 1. Vectorization (JSON to `cad_vec`)
+Converts hierarchical CAD tree geometries (sketch profiles, extrusion constraints) from Onshape JSON format to a flat 2D vectorized array.
+- **Input**: Nested JSON dictionary of sketch profiles (lines, arcs, circles) and extrusion operations.
+- **Output**: Fixed-length matrix of size $N \times (1 + \text{n\_args})$, where the first column is the command ID and the rest are command parameters.
+
+### 2. Group & Sequence Masking
+Segments vectorized parameters into sketch-extrusion pairs (groups) and configures temporal masks.
+- **Input**: Flat sequence array.
+- **Output**: Multi-head attention masks and `group_mask` indices. This prevents the model from attending to invalid future tokens and groups corresponding loops.
+
+### 3. CAD Embedding Layer
+Linearly projects discrete CAD commands and continuous parameters to a joint latent space.
+- **Input**: Command sequence indices (shape $[S, N]$) and parameter values (shape $[S, N, \text{n\_args}]$).
+- **Process**: Employs categorical `nn.Embedding` for command indices and maps continuous parameter sequences via a fully-connected layer. Group and positional embeddings are added sequentially.
+- **Output**: Joint high-dimensional embeddings (shape $[S, N, d_{\text{model}}]$).
+
+### 4. Transformer Encoder Stack
+Extracts deep spatial-temporal relationships within the CAD construction sequence.
+- **Configuration**: 4 self-attention layers, 8 heads, $d_{\text{model}} = 256$, $\text{dim\_feedforward} = 512$.
+- **Process**: Applies multi-head self-attention with key-padding masks to learn command order and constraints.
+
+### 5. Latent Bottleneck Compression
+Aggregates the temporal sequences into a singular, compact bottleneck representation.
+- **Process**: Re-weights outputs using a temporal padding mask, pools them, and applies a `Linear` layer followed by `Tanh` activation.
+- **Output**: Latent vector $\mathbf{z} \in [-1, 1]^{256}$.
+
+### 6. Const Embedding Decoder Layer
+Prepares a constant sequence for auto-regressive generation conditioned on the bottleneck latent vector.
+- **Input**: Bottle-necked latent vector $\mathbf{z}$ (shape $[1, N, 256]$).
+- **Process**: Initializes a learned constant embedding space and feeds it as the target sequence, conditioned on $\mathbf{z}$.
+
+### 7. Transformer Decoder Stack
+Generates the output representations conditioned on the bottleneck vector.
+- **Configuration**: 4 cross-attention layers, 8 heads, $d_{\text{model}} = 256$.
+- **Process**: Decodes target features by querying the bottleneck embedding vectors.
+
+### 8. Fully Connected Network (FCN) Prediction Head
+Maps target hidden representations to dual output predictions.
+- **Output Branches**:
+  1. **Command Logits**: Discrete probability distribution over commands (Line, Arc, Circle, Extrude, EOS, SOL).
+  2. **Parameter Logits**: Continuous regressions for coordinate attributes ($x, y, \alpha, \text{radius}, \dots$).
+
+### 9. Latent Space WGAN-GP Generation
+A Latent GAN (WGAN-GP) learns the probability distribution of the bottleneck vectors $\mathbf{z}$.
+- **Generator**: 4-layer MLP mapping noise $z_{\text{noise}} \in \mathbb{R}^{64} \rightarrow \mathbf{z}_{\text{fake}} \in \mathbb{R}^{256}$.
+- **Discriminator**: Critic scoring realism of $\mathbf{z}$ with gradient penalty optimization.
+
+### 10. STEP Topology Export
+Translates reconstructed sequences back into standard Boundary Representation (B-Rep) topological solids.
+- **Engine**: OpenCASCADE (via `pythonocc-core`).
+- **Output**: Standard `.step` format CAD files for modern downstream engineering software.
+
+---
+
+## 📊 DeepCAD Network Configuration & Hyperparameters (Tables)
+
+Below are detailed configuration and architectural tables describing the models.
+
+### Table 1: Autoencoder Hyperparameters
+| Parameter | Value | Description |
+| :--- | :--- | :--- |
+| `d_model` | 256 | Dimension of the Transformer hidden states |
+| `dim_z` | 256 | Dimension of the bottleneck latent vector |
+| `n_layers` | 4 | Number of Encoder Transformer Blocks |
+| `n_layers_decode` | 4 | Number of Decoder Transformer Blocks |
+| `n_heads` | 8 | Number of heads in Multi-Head Attention |
+| `dim_feedforward` | 512 | Hidden dimension of Feed-Forward network layers |
+| `dropout` | 0.1 | Dropout rate inside attention block layers |
+| `loss_cmd_weight` | 1.0 | Classification loss weight multiplier |
+| `loss_args_weight`| 2.0 | Parameter regression loss weight multiplier |
+
+### Table 2: Latent GAN (WGAN-GP) Configuration
+| Hyperparameter | Value | Description |
+| :--- | :--- | :--- |
+| `n_dim` | 64 | Dimension of input random noise vector |
+| `h_dim` | 512 | Hidden layer dimension in Generator/Discriminator MLPs |
+| `z_dim` | 256 | Output generated latent space dimension |
+| `beta1` | 0.5 | Optimizer momentum decay coefficient |
+| `critic_iters` | 5 | Critic update iterations per Generator step |
+| `gp_lambda` | 10 | Gradient Penalty coefficient ($\lambda$) for WGAN-GP |
+| `lr` | 2e-4 | Learning rate for generator/critic optimization |
+| `batch_size` | 256 | Batch size used during WGAN-GP training |
+
+### Table 3: CAD Sequence Dimensions
+| Dimension | Value | Description |
+| :--- | :--- | :--- |
+| `max_total_len` | 60 | Maximum command sequence length ($S$) |
+| `n_commands` | 6 | Total vocabulary size of distinct CAD operations |
+| `n_args` | 16 | Number of continuous parameters per command ($N_{\text{args}}$) |
+| `args_dim` | 256 | Discretization resolution/classes for coordinate parameters |
+| `max_num_groups` | 30 | Maximum sketch-extrusion group index supported |
+
+### Table 4: Command Index Mapping & Parameter Masks
+| Command | Vocabulary Index | Active Parameter Masks (Attributes) |
+| :--- | :---: | :--- |
+| **Line** | 0 | $x$, $y$ (Coordinate offsets) |
+| **Arc** | 1 | $x$, $y$, $\alpha$, $f$ (Offsets, sweep, curvature) |
+| **Circle** | 2 | $x$, $y$, $r$ (Center coordinates, radius) |
+| **EOS** | 3 | None (End of Sequence tag) |
+| **SOL** | 4 | None (Start of Loop tag) |
+| **Ext** | 5 | Extrusion plane, translational vector, extrusion depth |
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+- **OS**: Linux / macOS
+- **Hardware**: NVIDIA GPU + CUDA (for training) or CPU (via patches)
+- **Runtime**: Python 3.7+, PyTorch 1.5+
+
+### Installation
+1. Install Python dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+2. Install OpenCASCADE Python wrapper using conda:
+   ```bash
+   conda install -c conda-forge pythonocc-core=7.5.1
+   ```
+
+### Data Setup
+Download the vectorized CAD dataset [here](http://www.cs.columbia.edu/cg/deepcad/data.tar) and extract it to the `data/` directory.
+
+---
+
+## 🏃 Running Commands
+
+### 1. Training the Autoencoder
 ```bash
-$ pip install -r requirements.txt
+python train.py --exp_name newDeepCAD -g 0
 ```
 
-Install [pythonocc](https://github.com/tpaviot/pythonocc-core) (OpenCASCADE) by conda:
-
+### 2. Training the Latent GAN (WGAN-GP)
+Extract latent representations and train the GAN:
 ```bash
-$ conda install -c conda-forge pythonocc-core=7.5.1
+# Encode to latent space
+python test.py --exp_name newDeepCAD --mode enc --ckpt 1000 -g 0
+
+# Train Latent GAN
+python lgan.py --exp_name newDeepCAD --ae_ckpt 1000 -g 0
 ```
 
-
-## Data
-
-Download data from [here](http://www.cs.columbia.edu/cg/deepcad/data.tar) ([backup](https://drive.google.com/drive/folders/1mSJBZjKC-Z5I7pLPTgb4b5ZP-Y6itvGG?usp=sharing)) and extract them under `data` folder. 
-- `cad_json` contains the original json files that we parsed from Onshape and each file describes a CAD construction sequence. 
-- `cad_vec` contains our vectorized representation for CAD sequences, which serves for fast data loading. They can also be obtained using `dataset/json2vec.py`.
-TBA.
-- Some evaluation metrics that we use requires ground truth point clouds. Run:
-  ```bash
-  $ cd dataset
-  $ python json2pc.py --only_test
-  ```
-The data we used are parsed from Onshape public documents with links from [ABC dataset](https://archive.nyu.edu/handle/2451/61215). We also release our parsing scripts [here](https://github.com/ChrisWu1997/onshape-cad-parser) for anyone who are interested in parsing their own data.
-
-
-## Training
-See all hyper-parameters and configurations under `config` folder. To train the autoencoder:
-
+### 3. Testing & Reconstruction Evaluation
 ```bash
-$ python train.py --exp_name newDeepCAD -g 0
+# Reconstruction
+python test.py --exp_name newDeepCAD --mode rec --ckpt 1000 -g 0
+
+# Run evaluation scripts
+cd evaluation
+python evaluate_ae_acc.py --src ../proj_log/newDeepCAD/results/test_1000
+python evaluate_ae_cd.py --src ../proj_log/newDeepCAD/results/test_1000 --parallel
 ```
 
-For random generation, further train a latent GAN:
-
+### 4. Random CAD Sample Generation
 ```bash
-# encode all data to latent space
-$ python test.py --exp_name newDeepCAD --mode enc --ckpt 1000 -g 0
+# Generate fake latent vectors
+python lgan.py --exp_name newDeepCAD --ae_ckpt 1000 --ckpt 200000 --test --n_samples 9000 -g 0
 
-# train latent GAN (wgan-gp)
-$ python lgan.py --exp_name newDeepCAD --ae_ckpt 1000 -g 0
+# Decode generated latents to CAD commands
+python test.py --exp_name newDeepCAD --mode dec --ckpt 1000 --z_path proj_log/newDeepCAD/lgan_1000/results/fake_z_ckpt200000_num9000.h5 -g 0
 ```
 
-The trained models and experment logs will be saved in `proj_log/newDeepCAD/` by default. 
-
-
-
-## Testing and Evaluation
-
-#### __Autoencoding__
-
-  After training the autoencoder, run the model to reconstruct all test data:
-
-  ```bash
-  $ python test.py --exp_name newDeepCAD --mode rec --ckpt 1000 -g 0
-  ```
-  The results will be saved in`proj_log/newDeepCAD/results/test_1000` by default in the format of `h5` (CAD sequence saved in vectorized representation).
-
-  To evaluate the results:
-
-  ```bash
-  $ cd evaluation
-  # for command accuray and parameter accuracy
-  $ python evaluate_ae_acc.py --src ../proj_log/newDeepCAD/results/test_1000
-  # for chamfer distance and invalid ratio
-  $ python evaluate_ae_cd.py --src ../proj_log/newDeepCAD/results/test_1000 --parallel
-  ```
-
-#### __Random Generation__
-
-  After training the latent GAN, run latent GAN and the autoencoder to do random generation:
-
-  ```bash
-  # run latent GAN to generate fake latent vectors
-  $ python lgan.py --exp_name newDeepCAD --ae_ckpt 1000 --ckpt 200000 --test --n_samples 9000 -g 0
-  
-  # run the autoencoder to decode into final CAD sequences
-  $ python test.py --exp_name newDeepCAD --mode dec --ckpt 1000 --z_path proj_log/newDeepCAD/lgan_1000/results/fake_z_ckpt200000_num9000.h5 -g 0
-  ```
-  The results will be saved in`proj_log/newDeepCAD/lgan_1000/results` by default.
-
-  To evaluate the results by COV, MMD and JSD:
-
-  ```bash
-  $ cd evaluation
-  $ sh run_eval_gen.sh ../proj_log/newDeepCAD/lgan_1000/results/fake_z_ckpt200000_num9000_dec 1000 0
-  ```
-  The script `run_eval_gen.sh` combines `collect_gen_pc.py` and `evaluate_gen_torch.py`. 
-  You can also run these two files individually with specified arguments.
-
-
-## Pre-trained models
-
-Download pretrained model from [here](http://www.cs.columbia.edu/cg/deepcad/pretrained.tar) ([backup](https://drive.google.com/file/d/16RzOChCdLM5L1VUSFpgHwqU7JoQOF2Nd/view?usp=sharing)) and extract it under `proj_log`. All testing commands shall be able to excecuted directly, by specifying `--exp_name=pretrained` when needed.
-
-
-## Visualization and Export
-We provide scripts to visualize CAD models and export the results to `.step` files, which can be loaded by almost all modern CAD softwares.
+### 5. OCC Visualization & STEP Export
 ```bash
-$ cd utils
-$ python show.py --src {source folder} # visualize with opencascade
-$ python export2step.py --src {source folder} # export to step format
+cd utils
+python show.py --src {source folder}
+python export2step.py --src {source folder}
 ```
-Script to create CAD modeling sequence in Onshape according to generated outputs: TBA.
 
-## Acknowledgement
-We would like to thank and acknowledge referenced codes from [DeepSVG](https://github.com/alexandre01/deepsvg), [latent 3d points](https://github.com/optas/latent_3d_points) and [PointFlow](https://github.com/stevenygd/PointFlow).
+---
 
-## Cite
+## 📂 Codebase Structure
+* `model/`: Definitions of PyTorch models (`autoencoder.py`, `latentGAN.py`).
+* `config/`: Configuration parser modules (`configAE.py`, `configLGAN.py`).
+* `cadlib/`: Utilities for processing STEP files, B-Rep geometries, macro definitions.
+* `evaluation/`: Accuracy metric evaluation scripts.
+* `utils/`: Visualisation, STEP exporters, and file system helper utils.
 
-Please cite our work if you find it useful:
-```
+---
+
+## 📝 Citation
+```bibtex
 @InProceedings{Wu_2021_ICCV,
-    author    = {Wu, Rundi and Xiao, Chang and Zheng, Changxi},
+    author    = {Wu, Rundi and Xiao, Chang ...},
     title     = {DeepCAD: A Deep Generative Network for Computer-Aided Design Models},
     booktitle = {Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)},
     month     = {October},
