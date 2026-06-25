@@ -7,8 +7,10 @@ from joblib import Parallel, delayed
 import random
 from scipy.spatial import cKDTree as KDTree
 import time
+import os
 import sys
-sys.path.append("..")
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+import patch_cuda
 from utils import read_ply
 from cadlib.visualize import vec2CADsolid, CADsolid2pc
 

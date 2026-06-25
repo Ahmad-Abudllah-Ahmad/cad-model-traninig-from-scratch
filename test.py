@@ -1,3 +1,4 @@
+import patch_cuda
 from tqdm import tqdm
 from dataset.cad_dataset import get_dataloader
 from config import ConfigAE

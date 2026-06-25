@@ -62,22 +62,22 @@ gantt
     dateFormat  YYYY-MM-DD
     
     section Data Preparation
-    Phase 1: Parse Onshape JSON to Vector        :active, des1, 2026-06-01, 2026-06-05
-    Phase 2: Grouping & Sequence Masking          :active, des2, 2026-06-05, 2026-06-08
+    Phase 1 - Parse Onshape JSON to Vector        :active, des1, 2026-06-01, 2026-06-05
+    Phase 2 - Grouping & Sequence Masking          :active, des2, 2026-06-05, 2026-06-08
     
     section Autoencoder Network
-    Phase 3: Deep Embedding Alignment            :crit, des3, 2026-06-08, 2026-06-12
-    Phase 4: Encoder Transformer Stack           :crit, des4, 2026-06-12, 2026-06-16
-    Phase 5: Latent Compression Bottleneck       :crit, des5, 2026-06-16, 2026-06-19
-    Phase 6: Decoder Transformer Stack           :crit, des6, 2026-06-19, 2026-06-23
-    Phase 7: Joint Classify & Param Regress      :crit, des7, 2026-06-23, 2026-06-26
+    Phase 3 - Deep Embedding Alignment            :crit, des3, 2026-06-08, 2026-06-12
+    Phase 4 - Encoder Transformer Stack           :crit, des4, 2026-06-12, 2026-06-16
+    Phase 5 - Latent Compression Bottleneck       :crit, des5, 2026-06-16, 2026-06-19
+    Phase 6 - Decoder Transformer Stack           :crit, des6, 2026-06-19, 2026-06-23
+    Phase 7 - Joint Classify & Param Regress      :crit, des7, 2026-06-23, 2026-06-26
     
     section Latent GAN
-    Phase 8: WGAN-GP Latent Sampling             :active, des8, 2026-06-26, 2026-06-30
+    Phase 8 - WGAN-GP Latent Sampling             :active, des8, 2026-06-26, 2026-06-30
     
     section Export & Validation
-    Phase 9: Post-Processing & Validation        :des9, 2026-06-30, 2026-07-03
-    Phase 10: CAD Topology Export to STEP        :des10, 2026-07-03, 2026-07-06
+    Phase 9 - Post-Processing & Validation        :des9, 2026-06-30, 2026-07-03
+    Phase 10 - CAD Topology Export to STEP        :des10, 2026-07-03, 2026-07-06
 ```
 
 ### 1. Vectorization (JSON to `cad_vec`)

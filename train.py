@@ -1,3 +1,4 @@
+import patch_cuda
 from collections import OrderedDict
 from tqdm import tqdm
 import argparse

@@ -3,8 +3,10 @@ from tqdm import tqdm
 import os
 import argparse
 import numpy as np
+import os
 import sys
-sys.path.append("..")
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+import patch_cuda
 from cadlib.macro import *
 
 parser = argparse.ArgumentParser()
