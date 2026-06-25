@@ -8,8 +8,10 @@ from OCC.Core.gp import gp_Vec, gp_Trsf
 from OCC.Core.TopLoc import TopLoc_Location
 from OCC.Core.BRepCheck import BRepCheck_Analyzer
 import argparse
+import os
 import sys
-sys.path.append("..")
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+import patch_cuda
 from cadlib.extrude import CADSequence
 from cadlib.visualize import vec2CADsolid, create_CAD
 

@@ -1,0 +1,12 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Data and models
+data/
+proj_log/
+ckpt_epoch1000.onnx
+
+# GUI Cache
+gui/static/stl_cache/
