@@ -59,27 +59,32 @@ Below is an in-depth breakdown of the 10 critical phases of the DeepCAD generati
 ```mermaid
 gantt
     title DeepCAD Project Lifecycle Phases
-    dateFormat  YYYY-MM-DD
+    dateFormat  X
+    axisFormat %s
+    
     section Data Preparation
-    Phase 1: Parse Onshape JSON to Vector   :active, des1, 2026-06-01, 2026-06-05
-    Phase 2: Grouping & Command Sequence Masking :active, des2, 2026-06-05, 2026-06-08
+    Phase 1: Parse Onshape JSON to Vector        :active, des1, 0, 5
+    Phase 2: Grouping & Sequence Masking          :active, des2, 5, 8
+    
     section Autoencoder Network
-    Phase 3: Deep Embedding Alignment :crit, des3, 2026-06-08, 2026-06-12
-    Phase 4: Encoder Transformer Stack :crit, des4, 2026-06-12, 2026-06-16
-    Phase 5: Latent Compression Bottleneck :crit, des5, 2026-06-16, 2026-06-19
-    Phase 6: Decoder Transformer Stack :crit, des6, 2026-06-19, 2026-06-23
-    Phase 7: Joint Classification & Param Regression :crit, des7, 2026-06-23, 2026-06-26
-    section Latent Generative Adversarial
-    Phase 8: WGAN-GP Latent Sampling :active, des8, 2026-06-26, 2026-06-30
+    Phase 3: Deep Embedding Alignment            :crit, des3, 8, 12
+    Phase 4: Encoder Transformer Stack           :crit, des4, 12, 16
+    Phase 5: Latent Compression Bottleneck       :crit, des5, 16, 19
+    Phase 6: Decoder Transformer Stack           :crit, des6, 19, 23
+    Phase 7: Joint Classify & Param Regress      :crit, des7, 23, 26
+    
+    section Latent GAN
+    Phase 8: WGAN-GP Latent Sampling             :active, des8, 26, 30
+    
     section Export & Validation
-    Phase 9: Post-Processing & Validation :des9, 2026-06-30, 2026-07-03
-    Phase 10: CAD Topology Export to STEP :des10, 2026-07-03, 2026-07-06
+    Phase 9: Post-Processing & Validation        :des9, 30, 33
+    Phase 10: CAD Topology Export to STEP        :des10, 33, 36
 ```
 
 ### 1. Vectorization (JSON to `cad_vec`)
 Converts hierarchical CAD tree geometries (sketch profiles, extrusion constraints) from Onshape JSON format to a flat 2D vectorized array.
 - **Input**: Nested JSON dictionary of sketch profiles (lines, arcs, circles) and extrusion operations.
-- **Output**: Fixed-length matrix of size $N \times (1 + \text{n\_args})$, where the first column is the command ID and the rest are command parameters.
+- **Output**: Fixed-length matrix of size $N \times (1 + n\_args)$, where the first column is the command ID and the rest are command parameters.
 
 ### 2. Group & Sequence Masking
 Segments vectorized parameters into sketch-extrusion pairs (groups) and configures temporal masks.
@@ -88,40 +93,40 @@ Segments vectorized parameters into sketch-extrusion pairs (groups) and configur
 
 ### 3. CAD Embedding Layer
 Linearly projects discrete CAD commands and continuous parameters to a joint latent space.
-- **Input**: Command sequence indices (shape $[S, N]$) and parameter values (shape $[S, N, \text{n\_args}]$).
+- **Input**: Command sequence indices (shape $[S, N]$) and parameter values (shape $[S, N, n\_args]$).
 - **Process**: Employs categorical `nn.Embedding` for command indices and maps continuous parameter sequences via a fully-connected layer. Group and positional embeddings are added sequentially.
-- **Output**: Joint high-dimensional embeddings (shape $[S, N, d_{\text{model}}]$).
+- **Output**: Joint high-dimensional embeddings (shape $[S, N, d\_model]$).
 
 ### 4. Transformer Encoder Stack
 Extracts deep spatial-temporal relationships within the CAD construction sequence.
-- **Configuration**: 4 self-attention layers, 8 heads, $d_{\text{model}} = 256$, $\text{dim\_feedforward} = 512$.
+- **Configuration**: 4 self-attention layers, 8 heads, $d\_model = 256$, $dim\_feedforward = 512$.
 - **Process**: Applies multi-head self-attention with key-padding masks to learn command order and constraints.
 
 ### 5. Latent Bottleneck Compression
 Aggregates the temporal sequences into a singular, compact bottleneck representation.
 - **Process**: Re-weights outputs using a temporal padding mask, pools them, and applies a `Linear` layer followed by `Tanh` activation.
-- **Output**: Latent vector $\mathbf{z} \in [-1, 1]^{256}$.
+- **Output**: Latent vector $z \in [-1, 1]^{256}$.
 
 ### 6. Const Embedding Decoder Layer
 Prepares a constant sequence for auto-regressive generation conditioned on the bottleneck latent vector.
-- **Input**: Bottle-necked latent vector $\mathbf{z}$ (shape $[1, N, 256]$).
-- **Process**: Initializes a learned constant embedding space and feeds it as the target sequence, conditioned on $\mathbf{z}$.
+- **Input**: Bottle-necked latent vector $z$ (shape $[1, N, 256]$).
+- **Process**: Initializes a learned constant embedding space and feeds it as the target sequence, conditioned on $z$.
 
 ### 7. Transformer Decoder Stack
 Generates the output representations conditioned on the bottleneck vector.
-- **Configuration**: 4 cross-attention layers, 8 heads, $d_{\text{model}} = 256$.
+- **Configuration**: 4 cross-attention layers, 8 heads, $d\_model = 256$.
 - **Process**: Decodes target features by querying the bottleneck embedding vectors.
 
 ### 8. Fully Connected Network (FCN) Prediction Head
 Maps target hidden representations to dual output predictions.
 - **Output Branches**:
   1. **Command Logits**: Discrete probability distribution over commands (Line, Arc, Circle, Extrude, EOS, SOL).
-  2. **Parameter Logits**: Continuous regressions for coordinate attributes ($x, y, \alpha, \text{radius}, \dots$).
+  2. **Parameter Logits**: Continuous regressions for coordinate attributes ($x$, $y$, $\alpha$, $radius$, $\dots$).
 
 ### 9. Latent Space WGAN-GP Generation
-A Latent GAN (WGAN-GP) learns the probability distribution of the bottleneck vectors $\mathbf{z}$.
-- **Generator**: 4-layer MLP mapping noise $z_{\text{noise}} \in \mathbb{R}^{64} \rightarrow \mathbf{z}_{\text{fake}} \in \mathbb{R}^{256}$.
-- **Discriminator**: Critic scoring realism of $\mathbf{z}$ with gradient penalty optimization.
+A Latent GAN (WGAN-GP) learns the probability distribution of the bottleneck vectors $z$.
+- **Generator**: 4-layer MLP mapping noise $z\_noise \in \mathbb{R}^{64} \rightarrow z\_fake \in \mathbb{R}^{256}$.
+- **Discriminator**: Critic scoring realism of $z$ with gradient penalty optimization.
 
 ### 10. STEP Topology Export
 Translates reconstructed sequences back into standard Boundary Representation (B-Rep) topological solids.
@@ -164,7 +169,7 @@ Below are detailed configuration and architectural tables describing the models.
 | :--- | :--- | :--- |
 | `max_total_len` | 60 | Maximum command sequence length ($S$) |
 | `n_commands` | 6 | Total vocabulary size of distinct CAD operations |
-| `n_args` | 16 | Number of continuous parameters per command ($N_{\text{args}}$) |
+| `n_args` | 16 | Number of continuous parameters per command ($N_{args}$) |
 | `args_dim` | 256 | Discretization resolution/classes for coordinate parameters |
 | `max_num_groups` | 30 | Maximum sketch-extrusion group index supported |
 
